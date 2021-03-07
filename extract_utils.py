@@ -10,6 +10,7 @@ reload(date_utils)
 """
 def columns_of_interrest(original_production_data, original_weather_data):
     j = 0
+    # Hashmap of type (date_time, index)
     weather_date_times = {} 
     ret = {"DATE_TIME":[], "SOURCE_KEY":[], "DC_POWER":[], "AC_POWER":[], "DAILY_YIELD":[]}
     rows_for_deletion = [] # List of rows that will be deleted because the 2 datasets are incomplete 
@@ -19,7 +20,7 @@ def columns_of_interrest(original_production_data, original_weather_data):
             ret[col].append(original_production_data.loc[i, col])
     ret["AMBIENT_TEMPERATURE"] = []
     ret["IRRADIATION"] = []
-    # Hashmap of type (date_time, index)
+    _convert_date_format(original_weather_data)
     for i in range(len(original_weather_data)):
         weather_date_times[original_weather_data["DATE_TIME"][i]] = i
     # Weather data is added
@@ -48,6 +49,7 @@ def columns_of_interrest(original_production_data, original_weather_data):
         date, time = df['DATE_TIME'][i].split(" ")
         df.loc[i, 'DATE'] = date
         df.loc[i, 'TIME'] = time
+        df.loc[i, 'SECONDS'] = _time_to_seconds(time)
     del df['DATE_TIME']
     return df
 
@@ -60,7 +62,7 @@ def add_offset_columns(data, offset):
     The 2 datasets (production and weather have different formats for column DATE_TIME)
     This fuction converts the column to "yyyy-mm-dd HH:MM:SS" format
 """
-def convert_date_format(date_time):
+def _convert_date_format(date_time):
     for i in range(len(date_time)): 
         e = date_time['DATE_TIME'][i]
         date, time = e.split(" ")
@@ -68,3 +70,8 @@ def convert_date_format(date_time):
         split_date[0], split_date[2] = split_date[2], split_date[0]
         time = time[0:5] # Eliminam secundele
         date_time.loc[i, "DATE_TIME"] = "-".join(split_date) + " " + time   
+
+# Time format: HH:MM
+def _time_to_seconds(time):
+    hours, minutes = time.split(":")
+    return int(hours) * 3600 + int(minutes) * 60
