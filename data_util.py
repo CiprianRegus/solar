@@ -13,3 +13,4 @@ def split_train_test(dataset, split_ratio, train_columns, validation_columns):
     y_test = testing_data[validation_columns]
 
     return (x_train, y_train, x_test, y_test)
+

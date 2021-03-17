@@ -1,6 +1,8 @@
 import torch
 import math
 
+dev = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+
 class MLP(torch.nn.Module):
     def __init__(self, input_size, n_hidden_layers, hidden_size, activation_function):
         super(MLP, self).__init__()
@@ -43,13 +45,13 @@ class LinearRegression(torch.nn.Module):
     Performs trainig and testing
     Returns a tuple of format (train_losses, pred_values)
 """
-def train(model, loss_function, x_train, y_train, x_test, y_train, learning_rate=1e-6, epochs=50000):
+def train(model, x_train, y_train, x_test, y_test, learning_rate=1e-6, epochs=50000):
     losses = []
     train_loss = 0
     opt = torch.optim.SGD(model.parameters(), lr=learning_rate)
     loss_function = torch.nn.MSELoss()
-    x = torch.autograd.Variable(torch.tensor(x_train).type(torch.FloatTensor), requires_grad=True)
-    y = torch.autograd.Variable(torch.tensor(y_train).type(torch.FloatTensor), requires_grad=True)
+    x = torch.autograd.Variable(torch.tensor(x_train, device=dev).type(torch.cuda.FloatTensor), requires_grad=True)
+    y = torch.autograd.Variable(torch.tensor(y_train, device=dev).type(torch.cuda.FloatTensor), requires_grad=True)
     for t in range(epochs):
         pred = model(x)
         loss = loss_function(pred, y)
@@ -59,17 +61,15 @@ def train(model, loss_function, x_train, y_train, x_test, y_train, learning_rate
         if t == epochs - 1:
             print("Final loss: ", loss.item())
         if t % 5 == 0:
-            #losses.append(loss.item())
-            train_loss = loss.item()
+            losses.append(loss.item())
+            #train_loss = loss.item()
             #print("Loss: ", loss)
 
-    corr_values = []
     pred_values = []
     with torch.no_grad():
-    model.eval()
-    for i in range(len(x_test)):
-        output = mod(torch.tensor(x_test[i]).type(torch.FloatTensor))
-        corr_values.append(y_test[i].item())
-        pred_values.append(output.item())
+        model.eval()
+        for i in range(len(x_test)):
+            output = model(torch.tensor(x_test[i], device=dev).type(torch.FloatTensor))
+            pred_values.append(output.item())
 
     return (losses, pred_values)
