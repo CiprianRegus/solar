@@ -22,8 +22,8 @@ import copy
 
 INPUT_SIZE = 4
 OUTPUT_SIZE = 1
-EPOCHS = 40000
-LEARNING_RATE = 1e-3
+EPOCHS = 25000
+LEARNING_RATE = 1e-2
 SECONDS_IN_DAY = 60*60*24
 INTERVAL_OFFSET = 1
 DAY_OFFSET = 4*24
@@ -83,38 +83,29 @@ def split_inverters():
 """
 def normalize_data(inverter_subsets):
 
-    x_train, y_train, x_test, y_test = du.split_train_test(inverter_subsets[0], 0.8 
+    x_train, y_train, x_test, y_test = du.split_train_test(inverter_subsets[7], 0.8 
                                     , ["SECONDS", "AMBIENT_TEMPERATURE", "IRRADIATION", "PREVIOUS_DAY_DC", "PREVIOUS_DAY_AC", "DC_POWER", "AC_POWER"],                                          
                                     ["DC_POWER", "AC_POWER", "DAILY_YIELD"])
 
-    #Test data is normalized
+    #Data is normalized
     test_offset = x_test.first_valid_index()
     for col in ["DC_POWER", "AC_POWER"]:
-        test_std = torch.tensor(x_train[col].values)
-        test_std -= torch.mean(test_std)
-        test_std = test_std/torch.std(test_std)
-
+        test_std = normalize_array(x_train[col].values)
         for i in range(len(test_std)):
             y_train.loc[i, col] = float(test_std[i].item())
             x_train.loc[i, col] = float(test_std[i].item())
 
-        test_std = torch.tensor(y_test[col].values)
-        test_std -= torch.mean(test_std)
-        test_std = test_std/torch.std(test_std)
+        test_std = normalize_array(y_test[col].values)
         for i in range(test_offset, len(test_std) + test_offset):
             y_test.loc[i, col] = float(test_std[i - test_offset].item())
             x_test.loc[i, col] = float(test_std[i - test_offset].item())
 
     for col in ["AMBIENT_TEMPERATURE", "IRRADIATION", "PREVIOUS_DAY_DC", "PREVIOUS_DAY_AC"]:
-        test_std = torch.tensor(x_train[col].values)
-        test_std -= torch.mean(test_std)
-        test_std = test_std/torch.std(test_std)
+        test_std = normalize_array(x_train[col].values)
         for i in range(len(test_std)):
             x_train.loc[i, col] = float(test_std[i].item())
 
-        test_std = torch.tensor(x_test[col].values)
-        test_std -= torch.mean(test_std)
-        test_std = test_std/torch.std(test_std)
+        test_std = normalize_array(x_test[col].values)
         for i in range(test_offset, len(test_std) + test_offset):
             try:
                 x_test.loc[i, col] = float(test_std[i - test_offset].item())
@@ -122,17 +113,17 @@ def normalize_data(inverter_subsets):
                 print("INVALID INDEX: ", i)
     # transform seconds -> sin((seconds/seconds_in_day) * pi))
     for i in range(len(x_train["SECONDS"])):
-        x_train.loc[i, "SECONDS"] = math.sin((x_train.loc[i, "SECONDS"] / SECONDS_IN_DAY) * math.pi / 2)
+        x_train.loc[i, "SECONDS"] = math.sin((x_train.loc[i, "SECONDS"] / SECONDS_IN_DAY) * math.pi )
     for i in range(test_offset, len(x_test["SECONDS"]) + test_offset):
         try:
-            x_test.loc[i, "SECONDS"] = math.sin((x_test.loc[i, "SECONDS"] / SECONDS_IN_DAY) * math.pi / 2)
+            x_test.loc[i, "SECONDS"] = math.sin((x_test.loc[i, "SECONDS"] / SECONDS_IN_DAY) * math.pi )
         except:
             print("INVALID INDEX: ", i)
 
-    x_train = x_train[["SECONDS", "AMBIENT_TEMPERATURE", "IRRADIATION", "PREVIOUS_DAY_DC"]].values
-    y_train = y_train[["DC_POWER"]].values
-    x_test = x_test[["SECONDS", "AMBIENT_TEMPERATURE", "IRRADIATION", "PREVIOUS_DAY_DC"]].values
-    y_test = y_test[["DC_POWER"]].values
+    x_train = x_train[["SECONDS", "AMBIENT_TEMPERATURE", "IRRADIATION", "PREVIOUS_DAY_AC"]].values
+    y_train = y_train[["AC_POWER"]].values
+    x_test = x_test[["SECONDS", "AMBIENT_TEMPERATURE", "IRRADIATION", "PREVIOUS_DAY_AC"]].values
+    y_test = y_test[["AC_POWER"]].values
 
     return x_train, y_train, x_test, y_test
 
@@ -152,13 +143,12 @@ def normalize_array(arr, method="min_max"):
     else:
         raise Exception("Invalid normalization method")
 
-    return ret
+    return 1 + ret
 
 
 def run_linear_regression(inverter_subsets):
 
     x_train, y_train, x_test, y_test = normalize_data(inverter_subsets)
-
     linear_model = network.LinearRegression(INPUT_SIZE, OUTPUT_SIZE)
     #linear_model.cuda()
     crit = torch.nn.MSELoss()
@@ -219,10 +209,7 @@ def run_linear_regression(inverter_subsets):
 
 def run_mlp(inverter_subsets):
    
-    print("Running mlp")
-    print(inverter_subsets[0])
     x_train, y_train, x_test, y_test = normalize_data(inverter_subsets)
- 
     """
         MLP
     """
@@ -233,8 +220,8 @@ def run_mlp(inverter_subsets):
     stacking_input = []
     bagging_pred = []
 
-    for i in range(1, 6):
-        mod = network.MLP(input_size=x_train.shape[1], n_hidden_layers=i, hidden_size= x_train.shape[1], activation_function=torch.nn.SiLU)
+    for i in range(1, 4):
+        mod = network.MLP(input_size=x_train.shape[1], n_hidden_layers=i, hidden_size= x_train.shape[1], activation_function=torch.nn.ReLU)
         #mod.cuda()
         losses, pred_values = network.train_mlp(mod, x_train, y_train, x_test, y_test, learning_rate=LEARNING_RATE, epochs=EPOCHS) 
         all_pred_values.append(pred_values)
@@ -269,8 +256,8 @@ def run_mlp(inverter_subsets):
 
     for i, e in enumerate(models):
         current_mape = lossf.mape(all_pred_values[i], [e.item() for e in y_test])
-        if current_mape < 20:
-            models.remove(e)
+        #if current_mape < 15:
+        #    models.remove(e)
         accuracies.append(100 - current_mape)
         print("{0} layers: ".format(i+1), current_mape)
 
@@ -294,11 +281,11 @@ def run_mlp(inverter_subsets):
         for j in range(len(all_pred_values)):
             inp.append(all_pred_values[j][i])
         stacking_input.append(inp)
-   
+    print("Stacking ensemble size: ", len(stacking_input))
     stacking_input_train = stacking_input[:int(0.8 * len(stacking_input))]
     stacking_input_test = stacking_input[int(0.8*len(stacking_input)):]
-    stacking_model = network.StackingEnsemble(models, input_size=len(stacking_input[0]), n_hidden_layers=3, hidden_size=len(stacking_input[0]), activation_function=torch.nn.SiLU)
-    losses, pred_values = network.train_stacking(mod, x_train, y_train, x_test, y_test, learning_rate=LEARNING_RATE, epochs=EPOCHS) 
+    stacking_model = network.StackingEnsemble(models, input_size=len(stacking_input[0]), n_hidden_layers=1, hidden_size=len(stacking_input[0]), activation_function=torch.nn.ReLU)
+    losses, pred_values = network.train_stacking(mod, x_train, y_train, x_test, y_test, learning_rate=1e-2, epochs=25000) 
     print("Stacking ensemble MAPE: ", lossf.mape(pred_values, [e.item() for e in y_test]))
 
 def run_all():
