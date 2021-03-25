@@ -69,6 +69,27 @@ class StackingEnsemble(torch.nn.Module):
         return self.n(torch.tensor(weak_models_pred))
         
 
+class RNNModel(torch.nn.Module):
+    def __init__(self, input_size, n_hidden_layers, hidden_size):
+        super(RNNModel, self).__init__()
+        self.rnn = torch.nn.RNN(input_size, hidden_size, n_hidden_layers, nonlinearity='relu')
+        self.hidden_state = torch.autograd.Variable(torch.zeros(n_hidden_layers, input_size, hidden_size))
+        self.cell_state = torch.autograd.Variable(torch.zeros(n_hidden_layers, input_size, hidden_size))
+        self.output_layer = torch.nn.Linear(hidden_size, 1)
+        self.hidden_size = hidden_size
+        self.n_hidden_layers = n_hidden_layers
+        self.input_size = input_size
+
+    def forward(self, x):
+        hidden_state = torch.zeros(self.n_hidden_layers, self.input_size, self.hidden_size)
+        cell_state = hidden_state
+        out, _ = self.rnn(x, hidden_state)
+        #out = out.contiguous().view(-1, self.hidden_size)
+        out = self.output_layer(x)
+        
+        return out
+
+
 #class LSTM(nn.Module):
    # def __init__(self, input_size, n_hidden_layers, hidden_size, )
 
@@ -79,6 +100,37 @@ class LinearRegression(torch.nn.Module):
 
     def forward(self, input):
         return self.linear(input)
+
+def train_rnn(model, x_train, y_train, x_test, y_test, learning_rate=1e-6, epochs=50000):
+    losses = []
+    train_loss = 0
+    opt = torch.optim.SGD(model.parameters(), lr=learning_rate)
+    loss_function = torch.nn.MSELoss()
+    x = torch.autograd.Variable(torch.tensor(x_train).type(torch.FloatTensor), requires_grad=True)
+    y = torch.autograd.Variable(torch.tensor(y_train).type(torch.FloatTensor), requires_grad=True)
+    x = x.unsqueeze(0)
+    for t in range(epochs):
+        print(x.size())
+        #print(x.unsqueeze(0).shape)   
+        pred = model(x)
+        loss = loss_function(pred, y)
+        opt.zero_grad()    
+        loss.backward()
+        opt.step()
+        if t == epochs - 1:
+            print("Final loss: ", loss.item())
+        if t % 5 == 0:
+            losses.append(loss.item())
+            #train_loss = loss.item()
+            #print("Loss: ", loss)
+    
+    pred_values = []
+    with torch.no_grad():
+        model.eval()
+        for i in range(len(x_test)):
+            output = model(torch.tensor(x_test[i]).type(torch.FloatTensor))
+            pred_values.append(output.item())
+    return (losses, pred_values)
 
 def train_stacking(model, x_train, y_train, x_test, y_test, learning_rate=1e-6, epochs=50000):
     losses = []

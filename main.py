@@ -90,22 +90,22 @@ def normalize_data(inverter_subsets):
     #Data is normalized
     test_offset = x_test.first_valid_index()
     for col in ["DC_POWER", "AC_POWER"]:
-        test_std = normalize_array(x_train[col].values)
+        test_std = normalize_array(x_train[col].values, method="mean_std")
         for i in range(len(test_std)):
             y_train.loc[i, col] = float(test_std[i].item())
             x_train.loc[i, col] = float(test_std[i].item())
 
-        test_std = normalize_array(y_test[col].values)
+        test_std = normalize_array(y_test[col].values, method="mean_std")
         for i in range(test_offset, len(test_std) + test_offset):
             y_test.loc[i, col] = float(test_std[i - test_offset].item())
             x_test.loc[i, col] = float(test_std[i - test_offset].item())
 
     for col in ["AMBIENT_TEMPERATURE", "IRRADIATION", "PREVIOUS_DAY_DC", "PREVIOUS_DAY_AC"]:
-        test_std = normalize_array(x_train[col].values)
+        test_std = normalize_array(x_train[col].values, method="mean_std")
         for i in range(len(test_std)):
             x_train.loc[i, col] = float(test_std[i].item())
 
-        test_std = normalize_array(x_test[col].values)
+        test_std = normalize_array(x_test[col].values, method="mean_std")
         for i in range(test_offset, len(test_std) + test_offset):
             try:
                 x_test.loc[i, col] = float(test_std[i - test_offset].item())
@@ -219,7 +219,12 @@ def run_mlp(inverter_subsets):
     accuracies = [] 
     stacking_input = []
     bagging_pred = []
-
+    """
+    rnn_model = network.RNNModel(input_size=x_train.shape[1], n_hidden_layers=1, hidden_size=x_train.shape[1])
+    losses, pred_values = network.train_rnn(rnn_model, x_train, y_train, x_test, y_test, learning_rate=LEARNING_RATE, epochs=EPOCHS) 
+    print("RNN final loss: ", losses[-1])
+    print("RNN MAPE: ", lossf.mape(pred_values, [e.item() for e in y_train]))
+    """
     for i in range(1, 4):
         mod = network.MLP(input_size=x_train.shape[1], n_hidden_layers=i, hidden_size= x_train.shape[1], activation_function=torch.nn.ReLU)
         #mod.cuda()
