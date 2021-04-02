@@ -43,7 +43,7 @@ def check_installed_libs(libs):
                 raise BaseException(lib)
                 
     
-try:  
+try: 
     check_installed_libs(libs)
 except BaseException as e: 
     print(f"Package {e.args[0]!r} not found")
@@ -84,7 +84,7 @@ def split_inverters():
 def normalize_data(inverter_subsets):
 
     x_train, y_train, x_test, y_test = du.split_train_test(inverter_subsets[7], 0.8 
-                                    , ["SECONDS", "AMBIENT_TEMPERATURE", "IRRADIATION", "PREVIOUS_DAY_DC", "PREVIOUS_DAY_AC", "DC_POWER", "AC_POWER"],                                          
+                                    , ["SECONDS", "AMBIENT_TEMPERATURE", "IRRADIATION", "PREVIOUS_DAY_DC", "PREVIOUS_DAY_AC", "DC_POWER", "AC_POWER"], 
                                     ["DC_POWER", "AC_POWER", "DAILY_YIELD"])
 
     #Data is normalized
@@ -146,17 +146,14 @@ def normalize_array(arr, method="min_max"):
     return 1 + ret
 
 
-def run_linear_regression(inverter_subsets):
-
-    x_train, y_train, x_test, y_test = normalize_data(inverter_subsets)
+def run_linear_regression(x_train, y_train, x_test, y_test):
+    
     linear_model = network.LinearRegression(INPUT_SIZE, OUTPUT_SIZE)
-    #linear_model.cuda()
     crit = torch.nn.MSELoss()
     optimizer = torch.optim.SGD(linear_model.parameters(), lr=LEARNING_RATE)
-    # Testarea regresiei multiple cu datele de la primul invertor
     losses = []
     
-    for epoch in range(EPOCHS):
+    for i in range(EPOCHS):
         temp_input = torch.autograd.Variable(torch.tensor(x_train).type(torch.FloatTensor), requires_grad=True)
         target = torch.autograd.Variable(torch.tensor(y_train).type(torch.FloatTensor), requires_grad=True)
         optimizer.zero_grad()
@@ -164,13 +161,12 @@ def run_linear_regression(inverter_subsets):
         loss = crit(outputs, target)
         loss.backward()
         optimizer.step()
-        if epoch == EPOCHS-1:
+        if i == EPOCHS-1:
             print("Final loss: ", loss.item())
-        if(epoch+1) % 100 ==0: 
-            print('epoch [%d/%d], Loss: %.4f' % (epoch +1, EPOCHS, loss.item()))
+        if(i + 1) % 100 == 0: 
+            #print('epoch [%d/%d], Loss: %.4f' % (epoch +1, EPOCHS, loss.item()))
             losses.append(loss.item())
-            #print('epoch [%d/%d], Loss: %.4f' % (epoch +1, EPOCHS, losses[-1]))
-	
+    
     fig, ax = plt.subplots()
     ax.plot([x for x in range(0, len(losses))], losses)
     ax.set(xlabel='epoch', ylabel='loss', title='Loss')
@@ -184,16 +180,16 @@ def run_linear_regression(inverter_subsets):
             output = linear_model(torch.tensor(x_test[i]).type(torch.FloatTensor))
             corr_values.append(y_test[i].item())
             pred_values.append(output.item())
-
-
+    
+    torch.save(linear_model.state_dict(), "models/linear_model.pt")
     fig, ax = plt.subplots()
     ax.plot([x for x in range(0, len(pred_values))], pred_values)
-    ax.set(xlabel='epoch', ylabel='DC_POWER', title='Prediction')
+    ax.set(xlabel='Timp', ylabel='Power (normalizata)', title='Predictia')
     ax.grid()
 
     fig, ax = plt.subplots()
     ax.plot([x for x in range(0, len(corr_values))], corr_values)
-    ax.set(xlabel='epoch', ylabel='loss', title='Correct Value')
+    ax.set(xlabel='Timp', ylabel='Power (normalizata)', title='Valoarea corecta')
     ax.grid()
 
 
@@ -202,14 +198,13 @@ def run_linear_regression(inverter_subsets):
         diff.append(abs(e - pred_values[i]))
     fig, ax = plt.subplots()
     ax.plot([x for x in range(0, len(diff))], diff)
-    ax.set(xlabel='epoch', ylabel='Diff', title='Difference')
+    ax.set(xlabel='Timp', ylabel='Diferenta (normalizata)', title='Diferenta dintre valoarea prezisa si cea corecta')
     ax.grid()
 
-    print("MAPE: ", lossf.mape(pred_values, corr_values))
+    print("MAPE regresie: ", lossf.mape(pred_values, corr_values))
 
-def run_mlp(inverter_subsets):
+def run_mlp(x_train, y_train, x_test, y_test):
    
-    x_train, y_train, x_test, y_test = normalize_data(inverter_subsets)
     """
         MLP
     """
@@ -225,14 +220,14 @@ def run_mlp(inverter_subsets):
     print("RNN final loss: ", losses[-1])
     print("RNN MAPE: ", lossf.mape(pred_values, [e.item() for e in y_train]))
     """
-    for i in range(1, 4):
+    for i in range(1, 6):
         mod = network.MLP(input_size=x_train.shape[1], n_hidden_layers=i, hidden_size= x_train.shape[1], activation_function=torch.nn.ReLU)
         #mod.cuda()
         losses, pred_values = network.train_mlp(mod, x_train, y_train, x_test, y_test, learning_rate=LEARNING_RATE, epochs=EPOCHS) 
         all_pred_values.append(pred_values)
         models.append((mod, losses[-1]))
     losses = min(models, key=lambda x: x[1])
-
+    
     """
     print(mod.parameters())
     pred_values = []
@@ -250,34 +245,39 @@ def run_mlp(inverter_subsets):
         diff.append(abs(e - pred_values[i]))
     fig, ax = plt.subplots()
     ax.plot([x for x in range(0, len(pred_values))], pred_values)
-    ax.set(xlabel='epoch', ylabel='Predicted value', title='MLP-3 prediction')
+    ax.set(xlabel='Timp', ylabel='Power (normalizata)', title='MLP-3 prediction')
     ax.grid()
 
     fig, ax = plt.subplots()
     ax.plot([x for x in range(0, len(diff))], diff)
-    ax.set(xlabel='epoch', ylabel='Diff', title='MLP-3 Difference')
+    ax.set(xlabel='Timp', ylabel='Power (normalizata)', title='MLP-3 Difference')
     ax.grid()
     """
-
+    
+    innacurate_models = []
     for i, e in enumerate(models):
         current_mape = lossf.mape(all_pred_values[i], [e.item() for e in y_test])
-        #if current_mape < 15:
-        #    models.remove(e)
+        removed = False
+        if current_mape > 15:
+            innacurate_models.append(e)
+            removed = True
         accuracies.append(100 - current_mape)
-        print("{0} layers: ".format(i+1), current_mape)
-
+        print("{} layers MAPE: {} ({})".format(i+1, current_mape, removed))
+        
+    for e in innacurate_models:
+        models.remove(e)
     """
         Bagging ensemble
-    """
     
     models = [e[0] for e in models]
-
+    
     bagging_model = network.BaggingEnsemble(models, accuracies)
     for i in range(len(x_test)):
         output = bagging_model(torch.tensor(x_test[i]).type(torch.FloatTensor))
         bagging_pred.append(output)
-    print("Bagging ensemble MAPE: ", lossf.mape(bagging_pred, [e.item() for e in y_test]))
-    
+    print("Bagging ensemble MAPE: {.2%}".format(lossf.mape(bagging_pred, [e.item() for e in y_test])))
+    """
+
     """
         Stacking ensemble
     """
@@ -286,15 +286,14 @@ def run_mlp(inverter_subsets):
         for j in range(len(all_pred_values)):
             inp.append(all_pred_values[j][i])
         stacking_input.append(inp)
-    print("Stacking ensemble size: ", len(stacking_input))
     stacking_input_train = stacking_input[:int(0.8 * len(stacking_input))]
     stacking_input_test = stacking_input[int(0.8*len(stacking_input)):]
     stacking_model = network.StackingEnsemble(models, input_size=len(stacking_input[0]), n_hidden_layers=1, hidden_size=len(stacking_input[0]), activation_function=torch.nn.ReLU)
     losses, pred_values = network.train_stacking(mod, x_train, y_train, x_test, y_test, learning_rate=1e-2, epochs=25000) 
-    print("Stacking ensemble MAPE: ", lossf.mape(pred_values, [e.item() for e in y_test]))
+    print("Stacking ensemble MAPE: {} ".format(lossf.mape(pred_values, [e.item() for e in y_test])))
 
 def run_all():
-
+    
     plant1Data = pd.read_csv("/home/xvr/Documents/licenta/Load forecasting/india/Plant_1_Generation_Data.csv")
     plant1Weather = pd.read_csv(r"/home/xvr/Documents/licenta/Load forecasting/india/Plant_1_Weather_Sensor_Data.csv")
     plant2Data = pd.read_csv(r"/home/xvr/Documents/licenta/Load forecasting/india/Plant_2_Generation_Data.csv")
@@ -389,9 +388,10 @@ def run_all():
 if __name__ == "__main__":
     inverter_subsets = split_inverters()
     inverter_subsets_copy = copy.deepcopy(inverter_subsets)
+    x_train, y_train, x_test, y_test = normalize_data(inverter_subsets)
     #run_linear_regression(inverter_subsets)
     #run_mlp(inverter_subsets_copy)
-    thread_linear = threading.Thread(run_linear_regression(inverter_subsets))
-    thread_mlp = threading.Thread(run_mlp(inverter_subsets_copy))
+    thread_linear = threading.Thread(run_linear_regression(x_train, y_train, x_test, y_test))
+    thread_mlp = threading.Thread(run_mlp(x_train, y_train, x_test, y_test))
     thread_linear.start()
     thread_mlp.start()

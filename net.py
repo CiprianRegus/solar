@@ -15,6 +15,7 @@ class MLP(torch.nn.Module):
         layers.append(torch.nn.Linear(hidden_size, 1))
         #layers.append(torch.nn.Linear())
         self.n = torch.nn.Sequential(*layers)
+        self.n_hidden_layers = n_hidden_layers
 
     def forward(self, x):
         return self.n(x)
@@ -179,7 +180,7 @@ def train_mlp(model, x_train, y_train, x_test, y_test, learning_rate=1e-6, epoch
         loss.backward()
         opt.step()
         if t == epochs - 1:
-            print("Final loss: ", loss.item())
+            print("{} layers loss: {} ".format(model.n_hidden_layers, loss.item()))
         if t % 5 == 0:
             losses.append(loss.item())
             #train_loss = loss.item()
