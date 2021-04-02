@@ -148,50 +148,25 @@ def normalize_array(arr, method="min_max"):
 
 def run_linear_regression(x_train, y_train, x_test, y_test):
     
+    corr_values = [x.item() for x in y_test]
     linear_model = network.LinearRegression(INPUT_SIZE, OUTPUT_SIZE)
-    crit = torch.nn.MSELoss()
-    optimizer = torch.optim.SGD(linear_model.parameters(), lr=LEARNING_RATE)
-    losses = []
-    
-    for i in range(EPOCHS):
-        temp_input = torch.autograd.Variable(torch.tensor(x_train).type(torch.FloatTensor), requires_grad=True)
-        target = torch.autograd.Variable(torch.tensor(y_train).type(torch.FloatTensor), requires_grad=True)
-        optimizer.zero_grad()
-        outputs = linear_model(temp_input)
-        loss = crit(outputs, target)
-        loss.backward()
-        optimizer.step()
-        if i == EPOCHS-1:
-            print("Final loss: ", loss.item())
-        if(i + 1) % 100 == 0: 
-            #print('epoch [%d/%d], Loss: %.4f' % (epoch +1, EPOCHS, loss.item()))
-            losses.append(loss.item())
-    
+    losses = network.train(linear_model, x_train, y_train, learning_rate=LEARNING_RATE, epochs=EPOCHS) 
+    pred_values = network.eval(linear_model, x_test, y_test)
     fig, ax = plt.subplots()
     ax.plot([x for x in range(0, len(losses))], losses)
     ax.set(xlabel='epoch', ylabel='loss', title='Loss')
     ax.grid()
     
-    pred_values = []
-    corr_values = []
-    with torch.no_grad():
-        linear_model.eval()
-        for i in range(len(x_test)):
-            output = linear_model(torch.tensor(x_test[i]).type(torch.FloatTensor))
-            corr_values.append(y_test[i].item())
-            pred_values.append(output.item())
-    
-    torch.save(linear_model.state_dict(), "models/linear_model.pt")
+    #torch.save(linear_model.state_dict(), "models/linear_model.pt")
     fig, ax = plt.subplots()
     ax.plot([x for x in range(0, len(pred_values))], pred_values)
     ax.set(xlabel='Timp', ylabel='Power (normalizata)', title='Predictia')
     ax.grid()
-
+    
     fig, ax = plt.subplots()
     ax.plot([x for x in range(0, len(corr_values))], corr_values)
     ax.set(xlabel='Timp', ylabel='Power (normalizata)', title='Valoarea corecta')
     ax.grid()
-
 
     diff = []
     for i, e in enumerate(corr_values):
@@ -223,37 +198,12 @@ def run_mlp(x_train, y_train, x_test, y_test):
     for i in range(1, 6):
         mod = network.MLP(input_size=x_train.shape[1], n_hidden_layers=i, hidden_size= x_train.shape[1], activation_function=torch.nn.ReLU)
         #mod.cuda()
-        losses, pred_values = network.train_mlp(mod, x_train, y_train, x_test, y_test, learning_rate=LEARNING_RATE, epochs=EPOCHS) 
+        losses = network.train(mod, x_train, y_train, learning_rate=LEARNING_RATE, epochs=EPOCHS) 
+        print("{} layers loss: {}".format(i, losses[-1]))
+        pred_values = network.eval(mod, x_test, y_test)
         all_pred_values.append(pred_values)
         models.append((mod, losses[-1]))
     losses = min(models, key=lambda x: x[1])
-    
-    """
-    print(mod.parameters())
-    pred_values = []
-    corr_values = []
-    with torch.no_grad():
-        mod.eval()
-        test_loss = 0
-        for i in range(len(x_test)):
-            output = mod(torch.tensor(x_test[i]).type(torch.FloatTensor))
-            corr_values.append(y_test[i].item())
-            pred_values.append(output.item())
-    corr_values = [x.item() for x in y_test]
-    diff = []
-    for i, e in enumerate(corr_values):
-        diff.append(abs(e - pred_values[i]))
-    fig, ax = plt.subplots()
-    ax.plot([x for x in range(0, len(pred_values))], pred_values)
-    ax.set(xlabel='Timp', ylabel='Power (normalizata)', title='MLP-3 prediction')
-    ax.grid()
-
-    fig, ax = plt.subplots()
-    ax.plot([x for x in range(0, len(diff))], diff)
-    ax.set(xlabel='Timp', ylabel='Power (normalizata)', title='MLP-3 Difference')
-    ax.grid()
-    """
-    
     innacurate_models = []
     for i, e in enumerate(models):
         current_mape = lossf.mape(all_pred_values[i], [e.item() for e in y_test])

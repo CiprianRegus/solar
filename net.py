@@ -166,7 +166,8 @@ def train_stacking(model, x_train, y_train, x_test, y_test, learning_rate=1e-6, 
     Performs training and testing
     Returns a tuple of format (train_losses, pred_values)
 """
-def train_mlp(model, x_train, y_train, x_test, y_test, learning_rate=1e-6, epochs=50000):
+def train(model, x_train, y_train, learning_rate=1e-6, epochs=50000):
+    
     losses = []
     train_loss = 0
     opt = torch.optim.SGD(model.parameters(), lr=learning_rate)
@@ -179,12 +180,15 @@ def train_mlp(model, x_train, y_train, x_test, y_test, learning_rate=1e-6, epoch
         opt.zero_grad()    
         loss.backward()
         opt.step()
-        if t == epochs - 1:
-            print("{} layers loss: {} ".format(model.n_hidden_layers, loss.item()))
         if t % 5 == 0:
             losses.append(loss.item())
             #train_loss = loss.item()
             #print("Loss: ", loss)
+    
+    return losses
+
+
+def eval(model, x_test, y_test):
     
     pred_values = []
     with torch.no_grad():
@@ -192,4 +196,7 @@ def train_mlp(model, x_train, y_train, x_test, y_test, learning_rate=1e-6, epoch
         for i in range(len(x_test)):
             output = model(torch.tensor(x_test[i]).type(torch.FloatTensor))
             pred_values.append(output.item())
-    return (losses, pred_values)
+
+    return pred_values
+
+
