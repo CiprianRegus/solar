@@ -71,12 +71,12 @@ def split_inverters():
         Split data in subsets for each inverter
     """
     inverter_subsets = []
-    for e in inverters:
+    # The set is sorted, so each time we'll have the subsets in the same order
+    for e in sorted(inverters):
         subset = plant1Data[plant1Data['SOURCE_KEY'] == e]
         inverter_subsets.append(subset)
         num_records = len(subset["AMBIENT_TEMPERATURE"])
         subset.index = [x for x in range(num_records)]
-    
     return inverter_subsets
 """
     data = (data - mean(data)) / std(data)
@@ -86,7 +86,6 @@ def normalize_data(inverter_subsets):
     x_train, y_train, x_test, y_test = du.split_train_test(inverter_subsets[7], 0.8 
                                     , ["SECONDS", "AMBIENT_TEMPERATURE", "IRRADIATION", "PREVIOUS_DAY_DC", "PREVIOUS_DAY_AC", "DC_POWER", "AC_POWER"], 
                                     ["DC_POWER", "AC_POWER", "DAILY_YIELD"])
-
     #Data is normalized
     test_offset = x_test.first_valid_index()
     for col in ["DC_POWER", "AC_POWER"]:
@@ -148,34 +147,19 @@ def normalize_array(arr, method="min_max"):
 
 def run_linear_regression(x_train, y_train, x_test, y_test):
     
+    losses = []
     corr_values = [x.item() for x in y_test]
-    linear_model = network.LinearRegression(INPUT_SIZE, OUTPUT_SIZE)
-    losses = network.train(linear_model, x_train, y_train, learning_rate=LEARNING_RATE, epochs=EPOCHS) 
+    linear_model = 0
+    linear_model = network.LinearRegression(input_size=x_train.shape[1])
+    if "--load_linear" in sys.argv:
+        linear_model.load_state_dict(torch.load("models/linear_model.pt"))
+        print("Loading")
+        print(x_test.shape[0])
+        for e in linear_model.state_dict():
+            print(e, "\n", linear_model.state_dict()[e])
+    else:
+        losses = network.train(linear_model, x_train, y_train, learning_rate=LEARNING_RATE, epochs=EPOCHS) 
     pred_values = network.eval(linear_model, x_test, y_test)
-    fig, ax = plt.subplots()
-    ax.plot([x for x in range(0, len(losses))], losses)
-    ax.set(xlabel='epoch', ylabel='loss', title='Loss')
-    ax.grid()
-    
-    #torch.save(linear_model.state_dict(), "models/linear_model.pt")
-    fig, ax = plt.subplots()
-    ax.plot([x for x in range(0, len(pred_values))], pred_values)
-    ax.set(xlabel='Timp', ylabel='Power (normalizata)', title='Predictia')
-    ax.grid()
-    
-    fig, ax = plt.subplots()
-    ax.plot([x for x in range(0, len(corr_values))], corr_values)
-    ax.set(xlabel='Timp', ylabel='Power (normalizata)', title='Valoarea corecta')
-    ax.grid()
-
-    diff = []
-    for i, e in enumerate(corr_values):
-        diff.append(abs(e - pred_values[i]))
-    fig, ax = plt.subplots()
-    ax.plot([x for x in range(0, len(diff))], diff)
-    ax.set(xlabel='Timp', ylabel='Diferenta (normalizata)', title='Diferenta dintre valoarea prezisa si cea corecta')
-    ax.grid()
-
     print("MAPE regresie: ", lossf.mape(pred_values, corr_values))
 
 def run_mlp(x_train, y_train, x_test, y_test):
@@ -342,6 +326,6 @@ if __name__ == "__main__":
     #run_linear_regression(inverter_subsets)
     #run_mlp(inverter_subsets_copy)
     thread_linear = threading.Thread(run_linear_regression(x_train, y_train, x_test, y_test))
-    thread_mlp = threading.Thread(run_mlp(x_train, y_train, x_test, y_test))
+    #thread_mlp = threading.Thread(run_mlp(x_train, y_train, x_test, y_test))
     thread_linear.start()
-    thread_mlp.start()
+    #thread_mlp.start()

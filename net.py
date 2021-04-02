@@ -95,9 +95,9 @@ class RNNModel(torch.nn.Module):
    # def __init__(self, input_size, n_hidden_layers, hidden_size, )
 
 class LinearRegression(torch.nn.Module):
-    def __init__(self, input_size, output_size):
+    def __init__(self, input_size):
         super(LinearRegression, self).__init__()
-        self.linear = torch.nn.Linear(input_size, output_size)
+        self.linear = torch.nn.Linear(input_size, 1)
 
     def forward(self, input):
         return self.linear(input)
