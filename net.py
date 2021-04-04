@@ -52,10 +52,14 @@ class StackingEnsemble(torch.nn.Module):
         A stacking ensemble is a nn that trains on the outputs of weaker models. 
     """
     def __init__(self, models, input_size,  n_hidden_layers, hidden_size, activation_function):
+        if len(models) == 0:
+            raise Exception("Invalid number of models for stacking ensemble (0)")
+        
         super(StackingEnsemble, self).__init__()
         layers = []
         self.models = models
         layers.append(torch.nn.Linear(input_size, hidden_size))
+        
         for _ in range(n_hidden_layers):
             layers.append(torch.nn.Linear(hidden_size, hidden_size))
             layers.append(activation_function())
@@ -63,13 +67,26 @@ class StackingEnsemble(torch.nn.Module):
         #layers.append(torch.nn.Linear())
         self.n = torch.nn.Sequential(*layers)
 
-    def forward(self, x): 
-        weak_models_pred = []
-        for e in self.models:
-            weak_models_pred.append(e(x))
-        return self.n(torch.tensor(weak_models_pred))
-        
 
+    def forward(self, x): 
+        return self.n(x)
+    
+
+    def construct_input(self, x):
+        weak_models_predictions = []
+        ret = []
+
+        inp = torch.autograd.Variable(torch.tensor(x).type(torch.FloatTensor), requires_grad=True)
+        for e in self.models:
+            weak_models_predictions.append(e(inp).detach().numpy())
+        for i in range(len(weak_models_predictions[0])):
+            preds = []
+            for j in range(len(self.models)):
+                preds.append(weak_models_predictions[j][i].item(0))
+            ret.append(preds)
+        
+        return ret 
+    
 class RNNModel(torch.nn.Module):
     def __init__(self, input_size, n_hidden_layers, hidden_size):
         super(RNNModel, self).__init__()
@@ -133,7 +150,11 @@ def train_rnn(model, x_train, y_train, x_test, y_test, learning_rate=1e-6, epoch
             pred_values.append(output.item())
     return (losses, pred_values)
 
-def train_stacking(model, x_train, y_train, x_test, y_test, learning_rate=1e-6, epochs=50000):
+def train_stacking(model, x_train, y_train, x_test, y_test, learning_rate=1e-6, epochs=10000):
+    
+    if len(model.models) == 0:
+        print("No models provided!")
+        return
     losses = []
     train_loss = 0
     opt = torch.optim.SGD(model.parameters(), lr=learning_rate)
@@ -152,7 +173,6 @@ def train_stacking(model, x_train, y_train, x_test, y_test, learning_rate=1e-6, 
         if t % 5 == 0:
             losses.append(loss.item())
             #train_loss = loss.item()
-            #print("Loss: ", loss)
     
     pred_values = []
     with torch.no_grad():
@@ -160,6 +180,7 @@ def train_stacking(model, x_train, y_train, x_test, y_test, learning_rate=1e-6, 
         for i in range(len(x_test)):
             output = model(torch.tensor(x_test[i]).type(torch.FloatTensor))
             pred_values.append(output.item())
+    
     return (losses, pred_values)
 
 """

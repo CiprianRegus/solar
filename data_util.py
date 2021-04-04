@@ -3,7 +3,6 @@ def split_train_test(dataset, split_ratio, train_columns, validation_columns):
         if e not in dataset.columns:
             raise Exception("Column not found in dataset: ",  e)
    
-    print("Split len(dataset): ", len(dataset))
     if split_ratio > 1 or split_ratio < 0:
         raise ValueError("Invalid split ratio value: ", split_ratio)
     training_data = dataset[:int(split_ratio * len(dataset))]
