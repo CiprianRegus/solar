@@ -19,10 +19,11 @@ import function as lossf
 import time_util as time
 from importlib import reload
 import copy
+import argument_parser as ap
 
 INPUT_SIZE = 4
 OUTPUT_SIZE = 1
-EPOCHS = 200
+EPOCHS = 30000
 LEARNING_RATE = 1e-2
 SECONDS_IN_DAY = 60*60*24
 INTERVAL_OFFSET = 1
@@ -53,14 +54,15 @@ reload(network)
 reload(lossf)
 reload(time)
 reload(du)
+reload(ap)
 
 dev = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 print(dev)
 print(torch.cuda.is_available())
 
 
-def split_inverters():
-    plant1Data = pd.read_csv("plant1Data") # Reimport the processed data
+def split_inverters(dataset_path):
+    plant1Data = pd.read_csv(dataset_path) # Reimport the processed data
     """
         There is a difference between the production reported by each inverter, so the prediction will be made for each of them
     """
@@ -82,8 +84,7 @@ def split_inverters():
     data = (data - mean(data)) / std(data)
 """
 def normalize_data(inverter_subsets):
-
-    x_train, y_train, x_test, y_test = du.split_train_test(inverter_subsets[11], 0.8 
+    x_train, y_train, x_test, y_test = du.split_train_test(inverter_subsets[18], 0.8 
                                     , ["SECONDS", "AMBIENT_TEMPERATURE", "IRRADIATION", "PREVIOUS_DAY_DC", "PREVIOUS_DAY_AC", "DC_POWER", "AC_POWER"], 
                                     ["DC_POWER", "AC_POWER", "DAILY_YIELD"])
     #Data is normalized
@@ -152,13 +153,15 @@ def run_linear_regression(x_train, y_train, x_test, y_test):
     linear_model = 0
     linear_model = network.LinearRegression(input_size=x_train.shape[1])
     if "--load_linear" in sys.argv:
-        linear_model.load_state_dict(torch.load("models/linear_model.pt"))
+        linear_model.load_state_dict(torch.load("../models/linear_model.pt"))
         print("Loading")
     else:
         losses = network.train(linear_model, x_train, y_train, learning_rate=1e-1, epochs=10000) 
-        torch.save(linear_model.state_dict(), "models/linear_model.pt")        
+        torch.save(linear_model.state_dict(), "../models/linear_model.pt")        
     pred_values = network.eval(linear_model, x_test, y_test)
     print("MAPE regresie: ", lossf.mape(pred_values, corr_values))
+    
+    return lossf.mape(pred_values, corr_values)
 
 def run_mlp(x_train, y_train, x_test, y_test):
    
@@ -191,6 +194,8 @@ def run_mlp(x_train, y_train, x_test, y_test):
     for i in range(len(models)):
         current_mape = lossf.mape(all_pred_values[i], [e.item() for e in y_test])
         """
+        In case we want to select only models with a minimum accuracy (the accuracy is calculated on the test set).
+        
         if current_mape > 15:
             innacurate_models.append(models[i])
         """
@@ -200,6 +205,19 @@ def run_mlp(x_train, y_train, x_test, y_test):
     for e in innacurate_models:
         models.remove(e)
     models = [e[0] for e in models]
+    
+    """
+    for i in range(1, len(models) + 1):
+        torch.save(models[i - 1].state_dict(), "../models/NN-{}.pt".format(i))
+        models[i].load_state_dict(torch.load("../models/NN-{}.pt".format(i)))
+    """
+
+    torch.save(models[0].state_dict(), "../models/NN-0.pt")
+    torch.save(models[1].state_dict(), "../models/NN-1.pt")
+    torch.save(models[2].state_dict(), "../models/NN-2.pt")
+    torch.save(models[3].state_dict(), "../models/NN-3.pt")
+    torch.save(models[4].state_dict(), "../models/NN-4.pt")
+    
     print("{} models selected as input for stacking ensemble".format(len(models)))
     """
         Bagging ensemble
@@ -221,22 +239,57 @@ def run_mlp(x_train, y_train, x_test, y_test):
         for j in range(len(all_pred_values)):
             inp.append(all_pred_values[j][i])
         stacking_input.append(inp)
+    print("Stacking_input size: ", len(stacking_input[0]))
     stacking_input_train = stacking_input[:int(0.8 * len(stacking_input))]
     stacking_input_test = stacking_input[int(0.8*len(stacking_input)):]
     stacking_model = network.StackingEnsemble(models, input_size=len(stacking_input[0]), n_hidden_layers=3, hidden_size=len(stacking_input[0]), activation_function=torch.nn.SiLU)
     stacking_train = stacking_model.construct_input(x_train)
     stacking_test = stacking_model.construct_input(x_test)
-    losses, pred_values = network.train_stacking(stacking_model, stacking_train, y_train, stacking_test, y_test, learning_rate=1e-2, epochs=25000) 
+    losses, pred_values = network.train_stacking(stacking_model, stacking_train, y_train, stacking_test, y_test, learning_rate=1e-2, epochs=EPOCHS) 
+    print("pred_values shape: ", len(pred_values))
     print("Stacking ensemble MAPE: {} ".format(lossf.mape(pred_values, [e.item() for e in y_test])))
+    
+    # save the trained stacking ensemble model 
+    torch.save(stacking_model.state_dict(), "../models/stacking_model.pt")        
 
-if __name__ == "__main__":
+    
+def predict_with_user_input(x_test, y_test, inp):
+    
+    models = []
+    
+    # Load MLPs
+    for i in range(0, 5):
+        mod = network.MLP(input_size=x_test.shape[1], n_hidden_layers=i + 1, hidden_size= x_test.shape[1] , activation_function=torch.nn.SiLU)
+        mod.load_state_dict(torch.load("../models/NN-{}.pt".format(i)), strict=False)
+        models.append(mod)
+    # Load stacking ensemble model
+    stacking_ensemble = network.StackingEnsemble(models, input_size=5 , n_hidden_layers=3, hidden_size=5, activation_function=torch.nn.SiLU)
+    stacking_ensemble.load_state_dict(torch.load("../models/stacking_model.pt"))
+    print(network.predict(stacking_ensemble, stacking_ensemble.construct_input([x_test[-1]])), y_test[-1])
+    #return net.predict(stacking_ensemble, inp)
 
-    inverter_subsets = split_inverters()
+def test(arg_name, arg_values):
+    print("Test! ", arg_name, " ", arg_values)
+
+def main(dataset_path):
+    inverter_subsets = split_inverters(dataset_path)
     inverter_subsets_copy = copy.deepcopy(inverter_subsets)
     x_train, y_train, x_test, y_test = normalize_data(inverter_subsets)
-    thread_linear = threading.Thread(run_linear_regression(x_train, y_train, x_test, y_test))
-    thread_mlp = threading.Thread(run_mlp(x_train, y_train, x_test, y_test))
-    thread_linear.start()
-    thread_mlp.start()
-    thread_mlp.join()
-    thread_linear.join()
+    #thread_linear = threading.Thread(run_linear_regression(x_train, y_train, x_test, y_test))
+    #thread_mlp = threading.Thread(run_mlp(x_train, y_train, x_test, y_test))
+    #thread_linear.start()
+    #thread_mlp.start()
+    print("x_test size ", len(x_test[1]))
+    run_linear_regression(x_train, y_train, x_test, y_test)
+    run_mlp(x_train, y_train, x_test, y_test)
+    predict_with_user_input(x_test, y_test, [1,1,1,1])
+
+if __name__ == "__main__":
+    main()    
+    parser = ap.ArgParser(sys.argv)
+    try:
+        parser.add_arg("--help", 1, "int", test)    
+        parser.print_args()
+        parser()
+    except Exception as e:
+        print(e)

@@ -9,7 +9,7 @@ def mape(pred_values, corr_values):
     return mape_sum * 100
 
 
-def mae(pred_values, coor_values):
+def mae(pred_values, corr_values):
     ret = 0
     for i in range(len(pred_values)):
         ret += abs(pred_values[i] - corr_values[i]) 

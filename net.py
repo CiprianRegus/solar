@@ -86,6 +86,16 @@ class StackingEnsemble(torch.nn.Module):
             ret.append(preds)
         
         return ret 
+
+    def construct_prediction_input(self, x):
+        weak_models_predictions = []
+
+        inp = torch.autograd.Variable(torch.tensor(x).type(torch.FloatTensor), requires_grad=True)
+        for e in self.models:
+            weak_models_predictions.append(e(inp).detach().numpy())
+        
+        tr = torch.transpose(torch.tensor(weak_models_predictions), 0, 1)
+        return tr
     
 class RNNModel(torch.nn.Module):
     def __init__(self, input_size, n_hidden_layers, hidden_size):
@@ -220,4 +230,12 @@ def eval(model, x_test, y_test):
 
     return pred_values
 
+
+def predict(model, inp):
+    """
+        Make a single prediction
+    """
+    with torch.no_grad():
+       model.eval()
+       return model(torch.tensor(inp).type(torch.FloatTensor))
 

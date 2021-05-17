@@ -14,3 +14,9 @@ def split_train_test(dataset, split_ratio, train_columns, validation_columns):
 
     return (x_train, y_train, x_test, y_test)
 
+"""
+    TODO:
+        - implement cross-validation
+        - split data in training/validation/testing sets. Validation is necessary for selecting 
+          the best models as input for the stacking ensemble
+"""
