@@ -13,6 +13,8 @@ import main
 
 reload(main)
 
+QUEUE_HOST = '172.17.0.2'
+
 queue_page = Blueprint('queue_page', 'queue_p')
 app = flask_app
 CORS(app)
@@ -22,7 +24,7 @@ socketio = SocketIO(app)
 socketio.init_app(app, cors_allowed_origins="*")
 
 def consume_queue():
-    conn = pika.BlockingConnection(pika.ConnectionParameters(host='172.17.0.2'))
+    conn = pika.BlockingConnection(pika.ConnectionParameters(host=QUEUE_HOST))
     channel = conn.channel()
     channel.queue_declare(queue='TestQueue')
 
@@ -35,6 +37,8 @@ def consume_queue():
         # Send the prediction result to frontend
         socketio.emit('result', 
                         {'Time': received_json['Time'],
+                        'Date': received_json['Date'],
+                        'Device_id': received_json['Device_id'],
                         'Value': result}, namespace='/test')
 
     channel.basic_consume(queue='TestQueue', on_message_callback=callback, auto_ack=True)
