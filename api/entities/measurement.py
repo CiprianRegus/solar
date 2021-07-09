@@ -1,4 +1,5 @@
 import sys
+import json
 
 sys.path.insert(0, '..')
 from init import *
@@ -15,5 +16,9 @@ class Measurement(db.Model):
     unit = db.relationship('Unit', backref='measurement', lazy=True)
     measurement_type = db.relationship('Type', backref='measurement', lazy=True)
     predicted = db.Column(db.Boolean, nullable=False)
+
+    def toJSON(self):
+        ret = {"date_time": date_time, "value": value}
+        return json.dumps(ret)
 
 db.create_all()

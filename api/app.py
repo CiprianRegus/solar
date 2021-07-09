@@ -9,13 +9,11 @@ from consumer import queue_page, consume_queue
 from init import flask_app
 import threading
 import util
+import json
 from init import *
-import entities.record
-import entities.unit
-import entities.type
-import entities.record
-import entities.device
-import entities.measurement
+import entities.inverse
+from services import measurement_repository
+from services import device_repository
 
 sys.path.insert(0, '..')
 import main
@@ -26,6 +24,8 @@ app = flask_app
 ### CORS configuration
 CORS(app)
 
+mrep = measurement_repository.MeasurementRepository(db)
+
 @app.route("/run")
 def hello():
     return jsonify({"id": "12", "class": "c"})
@@ -33,7 +33,16 @@ def hello():
 
 @app.route("/load", methods=["GET"])
 def load_model():
-    return jsonify({"predicted_value": main.main("../plant1Data", True)})
+    mean_std = main.main("../plant1Data", True)
+    for e in mean_std:
+        device_id, value_type, mean, std = e
+        try:
+            db.session.add(entities.inverse.NormalizationCoeff(device_id=device_id, value_type=value_type, mean=mean, std=std))
+            db.session.commit()
+        except Exception as e:
+            print("Mean/std pair not inserted: ", e)
+
+    return jsonify({"predicted_value": mean_std})
 
 @app.route('/authenticate', methods=['GET', 'POST'])
 @cross_origin()
@@ -62,11 +71,49 @@ def getDevices():
     '7JYdWkrLSPkdwr4', 'McdE0feGgRqW7Ca', 'VHMLBKoKgIrUVDU', 'WRmjgnKYAwPKWDb', 'ZnxXDlPa8U1GXgE', 'ZoEaEvLYb1n2sOq', 'adLQvlD726eNBSB',
     'bvBOhCH3iADSZry']})
 
-"""
-   start_consuming is a blocking operation 
-"""
-q_consumer_thread = threading.Thread(target=consume_queue)
-q_consumer_thread.start()
+@app.route('/latest', methods=['POST'])
+@cross_origin()
+def get_latest_values():
+    
+    if request.method == "POST":
+        #date = request.json["date"]
+        device_id = request.json["device_id"]
+        value_type = request.json["value_type"]
+        predicted = request.json["predicted"]
+        result = mrep.get_latest_by_device_id(predicted=predicted, physical_id=device_id, value_type=value_type, count=96)
+        #print(result) 
+
+        json_result = []
+        for e in result[::-1]:
+            json_result.append({"date_time": e.date_time, "value": e.value})
+
+        return jsonify({"latest": json_result}), 200
+
+    return jsonify({}), 400
+
+@app.route('/values_by_day', methods=['POST'])
+@cross_origin()
+def get_daily_values():
+    
+    if request.method == "POST":
+        date = request.json["date"]
+        device_id = request.json["device_id"]
+        value_type = request.json["value_type"]
+        predicted = request.json["predicted"]
+        
+        print("Date: ", date)
+
+        result = mrep.get_daily_by_device_id(predicted=predicted, physical_id=device_id, value_type=value_type, date_time=date)
+
+        json_result = []
+        for e in result[::-1]:
+            json_result.append({"date_time": e.date_time, "value": e.value})
+
+        return jsonify({"latest": json_result}), 200
+
+    return jsonify({}), 400
+
+
 
 
 class User(db.Model):
@@ -79,8 +126,14 @@ class User(db.Model):
         return '<User %r>' % self.username
 
 
-db.create_all()
 #user1 = User(username="User1", password="pass123")
 #db.session.add(user1)
 #db.session.commit()
 #print(User.query.all())
+
+"""
+   start_consuming is a blocking operation 
+"""
+q_consumer_thread = threading.Thread(target=consume_queue)
+q_consumer_thread.start()
+

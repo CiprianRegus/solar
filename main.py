@@ -20,6 +20,7 @@ import time_util as time
 from importlib import reload
 import copy
 import argument_parser as ap
+import model_parameter as param
 
 INPUT_SIZE = 4
 OUTPUT_SIZE = 1
@@ -72,19 +73,19 @@ def split_inverters(dataset_path):
     """
         Split data in subsets for each inverter
     """
-    inverter_subsets = []
+    inverter_subsets = {}
     # The set is sorted, so each time we'll have the subsets in the same order
     for e in sorted(inverters):
         subset = plant1Data[plant1Data['SOURCE_KEY'] == e]
-        inverter_subsets.append(subset)
+        inverter_subsets[e] = subset
         num_records = len(subset["AMBIENT_TEMPERATURE"])
         subset.index = [x for x in range(num_records)]
     return inverter_subsets
 """
     data = (data - mean(data)) / std(data)
 """
-def normalize_data(inverter_subsets):
-    x_train, y_train, x_test, y_test = du.split_train_test(inverter_subsets[18], 0.8 
+def normalize_subset(inverter_subsets, device_id):
+    x_train, y_train, x_test, y_test = du.split_train_test(inverter_subsets[device_id], 0.8 
                                     , ["SECONDS", "AMBIENT_TEMPERATURE", "IRRADIATION", "PREVIOUS_DAY_DC", "PREVIOUS_DAY_AC", "DC_POWER", "AC_POWER"], 
                                     ["DC_POWER", "AC_POWER", "DAILY_YIELD"])
     #Data is normalized
@@ -120,13 +121,38 @@ def normalize_data(inverter_subsets):
         except:
             print("INVALID INDEX: ", i)
 
-    x_train = x_train[["SECONDS", "AMBIENT_TEMPERATURE", "IRRADIATION", "PREVIOUS_DAY_AC"]].values
-    y_train = y_train[["AC_POWER"]].values
-    x_test = x_test[["SECONDS", "AMBIENT_TEMPERATURE", "IRRADIATION", "PREVIOUS_DAY_AC"]].values
-    y_test = y_test[["AC_POWER"]].values
+    x_train = x_train[["SECONDS", "AMBIENT_TEMPERATURE", "IRRADIATION", "PREVIOUS_DAY_DC"]].values
+    y_train = y_train[["DC_POWER"]].values
+    x_test = x_test[["SECONDS", "AMBIENT_TEMPERATURE", "IRRADIATION", "PREVIOUS_DAY_DC"]].values
+    y_test = y_test[["DC_POWER"]].values
 
     return x_train, y_train, x_test, y_test
 
+
+def compute_mean_std(inverter_subsets):
+    
+    """
+        inverter_subsets: [device_id][dataframe]
+        Returns: [[device_id, column_name, mean, std]]
+    """
+
+    ret = [] 
+    
+    for e in inverter_subsets.keys():
+        current_subset = inverter_subsets[e]
+        for col in ["DC_POWER", "AC_POWER"]:
+            current_column = torch.Tensor(current_subset[col].values)
+            mean = torch.mean(current_column).item()
+            std = torch.std(current_column).item()
+            ret.append([e, col, mean, std])
+
+        for col in ["AMBIENT_TEMPERATURE", "IRRADIATION", "PREVIOUS_DAY_DC", "PREVIOUS_DAY_AC"]:
+            current_column = torch.Tensor(current_subset[col].values)
+            mean = torch.mean(current_column).item()
+            std = torch.std(current_column).item()
+            ret.append([e, col, mean, std])
+
+    return ret
 
 def normalize_array(arr, method="min_max"):
     """
@@ -157,7 +183,7 @@ def run_linear_regression(x_train, y_train, x_test, y_test):
         print("Loading")
     else:
         losses = network.train(linear_model, x_train, y_train, learning_rate=1e-1, epochs=10000) 
-        torch.save(linear_model.state_dict(), "../models/linear_model.pt")        
+        torch.save(linear_model.state_dict(), "./models/linear_model.pt")        
     pred_values = network.eval(linear_model, x_test, y_test)
     print("MAPE regresie: ", lossf.mape(pred_values, corr_values))
     
@@ -212,11 +238,11 @@ def run_mlp(x_train, y_train, x_test, y_test):
         models[i].load_state_dict(torch.load("../models/NN-{}.pt".format(i)))
     """
 
-    torch.save(models[0].state_dict(), "../models/NN-0.pt")
-    torch.save(models[1].state_dict(), "../models/NN-1.pt")
-    torch.save(models[2].state_dict(), "../models/NN-2.pt")
-    torch.save(models[3].state_dict(), "../models/NN-3.pt")
-    torch.save(models[4].state_dict(), "../models/NN-4.pt")
+    torch.save(models[0].state_dict(), "./models/NN-0_DC.pt")
+    torch.save(models[1].state_dict(), "./models/NN-1_DC.pt")
+    torch.save(models[2].state_dict(), "./models/NN-2_DC.pt")
+    torch.save(models[3].state_dict(), "./models/NN-3_DC.pt")
+    torch.save(models[4].state_dict(), "./models/NN-4_DC.pt")
     
     print("{} models selected as input for stacking ensemble".format(len(models)))
     """
@@ -250,42 +276,64 @@ def run_mlp(x_train, y_train, x_test, y_test):
     print("Stacking ensemble MAPE: {} ".format(lossf.mape(pred_values, [e.item() for e in y_test])))
     
     # save the trained stacking ensemble model 
-    torch.save(stacking_model.state_dict(), "../models/stacking_model.pt")        
+    torch.save(stacking_model.state_dict(), "./models/stacking_model_DC.pt")        
 
     
-def predict_with_user_input(x_test, y_test, inp):
+def predict_with_user_input(x, dnorm_mean, dnorm_std, input_type="AC"):
+   
+    """
+        x: [ModelParameter(seconds) ... , ambient_temperature, irradiation, previous_day_power]
+
+    """
     
     models = []
     
     # Load MLPs
     for i in range(0, 5):
-        mod = network.MLP(input_size=x_test.shape[1], n_hidden_layers=i + 1, hidden_size= x_test.shape[1] , activation_function=torch.nn.SiLU)
-        mod.load_state_dict(torch.load("../models/NN-{}.pt".format(i)), strict=False)
+        mod = network.MLP(input_size=len(x), n_hidden_layers=i + 1, hidden_size= len(x) , activation_function=torch.nn.SiLU)
+        mod.load_state_dict(torch.load("../models/NN-{}_{}.pt".format(i, input_type)), strict=False)
         models.append(mod)
     # Load stacking ensemble model
     stacking_ensemble = network.StackingEnsemble(models, input_size=5 , n_hidden_layers=3, hidden_size=5, activation_function=torch.nn.SiLU)
-    stacking_ensemble.load_state_dict(torch.load("../models/stacking_model.pt"))
-    print(network.predict(stacking_ensemble, stacking_ensemble.construct_input([x_test[-1]])), y_test[-1])
-    #return net.predict(stacking_ensemble, inp)
+    stacking_ensemble.load_state_dict(torch.load("../models/stacking_model_{}.pt".format(input_type)))
+    
+    """
+        Normalize received data
+    """
+    model_input = []
+    for e in x:
+        model_input.append(e.normalize())
+
+    prediction_result =  network.predict(stacking_ensemble, 
+                        stacking_ensemble.construct_input(model_input)).item()
+    
+    return param.ModelParameter.denormalize(prediction_result, dnorm_mean, dnorm_std)
 
 def test(arg_name, arg_values):
     print("Test! ", arg_name, " ", arg_values)
 
-def main(dataset_path):
+def main(dataset_path, load=False):
+    
+    ar = sys.argv[1]
+
     inverter_subsets = split_inverters(dataset_path)
     inverter_subsets_copy = copy.deepcopy(inverter_subsets)
-    x_train, y_train, x_test, y_test = normalize_data(inverter_subsets)
-    #thread_linear = threading.Thread(run_linear_regression(x_train, y_train, x_test, y_test))
-    #thread_mlp = threading.Thread(run_mlp(x_train, y_train, x_test, y_test))
-    #thread_linear.start()
-    #thread_mlp.start()
-    print("x_test size ", len(x_test[1]))
-    run_linear_regression(x_train, y_train, x_test, y_test)
-    run_mlp(x_train, y_train, x_test, y_test)
-    predict_with_user_input(x_test, y_test, [1,1,1,1])
+    x_train, y_train, x_test, y_test = normalize_subset(inverter_subsets, ar)
+    thread_linear = run_linear_regression(x_train, y_train, x_test, y_test)
+    thread_mlp = run_mlp(x_train, y_train, x_test, y_test)
+    thread_linear.start()
+    thread_mlp.start()
+    
+    #if load == False:
+    #    run_linear_regression(x_train, y_train, x_test, y_test)
+    #    run_mlp(x_train, y_train, x_test, y_test)
+    #    return 
+    
+    #return compute_mean_std(inverter_subsets_copy)
 
+    
 if __name__ == "__main__":
-    main()    
+    main("plant1Data")    
     parser = ap.ArgParser(sys.argv)
     try:
         parser.add_arg("--help", 1, "int", test)    

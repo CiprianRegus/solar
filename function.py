@@ -15,3 +15,8 @@ def mae(pred_values, corr_values):
         ret += abs(pred_values[i] - corr_values[i]) 
     ret /= len(pred_values)
     return ret
+
+
+
+
+
